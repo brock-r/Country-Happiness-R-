@@ -1,0 +1,715 @@
+---
+title: "Impacts on Country Happiness"
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+---
+
+\fontsize{12}{12}
+
+
+```{r,include=FALSE}
+library(knitr)
+library(tidyverse)
+library(stringr)
+library(forcats)
+library(ggridges)
+
+```
+## Importing the first data sets and clean them
+The primary dataset for the project's name is "Happy." The CSV comes in as a singular row containing both the Country name and the World Happiness index score associated with that country. Clean Data requires each observation to have an individual row, so the separate command was used. Then that data set was joined with the Democracy index data set. This data set includes an overall democracy index score, as well as countries ratings in various vital variables relating to democracy, such as the functioning of the government, political participation, political regime type, and more.
+
+```{r, include = FALSE}
+HAPPY <- read_csv("WorldHappinessReport2018-Score.csv")
+Democracy_Index <- read_csv("DEMOCRACYINDEX.csv")
+```
+
+
+```{r, echo= FALSE}
+#### Filter Seperate all the categories in to their own column 
+Filtered_Happy <- HAPPY %>%
+  separate("Country\tHappiness score",into = c("Country", "Happy_Score"),sep="\t")
+
+Filtered_Democracy_Index <- Democracy_Index %>%
+  separate("Rank	Country	Score	Electoral process and pluralism	Functioning of government	Political participation	Political culture	Civil liberties	Regime type	Continent", 
+           into = c("Rank", "Country","Score","Electoral_Process and Pluralism", "Functioning_of_Gouv", "Political_Participation","Political_Cultyre", "Civil_Liberties", "Regime_type", "Continent"), sep = "\t")
+### Get rid of space on the left side of country
+A <- trimws(Filtered_Democracy_Index$Country, which = "left")
+
+Filtered_Democracy_Index3 <- Filtered_Democracy_Index %>%
+  mutate(Country = A)
+
+Joined_Happy_Democracy <- left_join(Filtered_Happy, Filtered_Democracy_Index3, by="Country")
+For_Stats_Graph_Join <- na.omit(Joined_Happy_Democracy)
+#### Make Variables Numeric to see summary statistics
+For_Stats_Graph_Join_Numeric1 <- Joined_Happy_Democracy %>%
+  transform(Happy_Score = as.numeric(Happy_Score)) %>%
+  transform(Functioning_of_Gouv = as.numeric(Functioning_of_Gouv)) %>%
+  transform(Political_Participation = as.numeric(Political_Participation)) %>%
+  transform(Political_Cultyre = as.numeric(Political_Cultyre)) %>%
+  transform(Civil_Liberties = as.numeric(Civil_Liberties)) %>%
+  transform(Electoral_Process.and.Pluralism = as.numeric(Electoral_Process.and.Pluralism)) %>%
+  transform(Score = as.numeric(Score))
+
+glimpse(For_Stats_Graph_Join_Numeric1)
+```
+## Begin Exploring the Data
+Exploring the data, we can see happiness scores available in the countries with democratic information range from about 2.905 to 7.632. At the bottom are many third world Asian and African countries such as Syria and Rwanda, while the top contains many first-world Oceanic and European countries (also Canada) such as Australia and Denmark. An average score is 5.376, and the 50th percentile is 5.37. These values being so close together suggests there is no significant skew of the data. The histogram shows us that the most frequent happiness scores are between 4.333 and 4.5. Next, we can see that the overall democracy index score is highly related to regime type and happiness. That relationship suggested this data is worth exploring. The following plot shows us this relationship holds regardless of continent, and finally which regimes are the most common, and where they are in the world. Full Democracies, for example, are the least common type overall and most prevalent in Europe. 
+```{r, echo=FALSE, out.width = "280px"}
+### Summary Statistics About the Happiness Variable
+Happyness <- For_Stats_Graph_Join_Numeric1$Happy_Score
+summary(Happyness)
+
+### Histogram for happiness
+Happy_Hisogram <- ggplot(For_Stats_Graph_Join_Numeric1, aes(x=Happy_Score, fill=Continent)) +
+  geom_histogram()
+suppressWarnings(print(Happy_Hisogram))
+### See how score relates to happiness and regime type
+Graph2 <- ggplot(For_Stats_Graph_Join_Numeric1, aes(x=Score, y = Happy_Score, color = Regime_type)) +
+  geom_point() +
+  geom_smooth(method = "loess", formula = y ~ x, size = 1) +
+  labs(title = "Happy Score vs. Overall Gouverment Score, not by Continent")
+suppressWarnings(print(Graph2))
+### Check if relationship holds by continent
+Graph <- ggplot(For_Stats_Graph_Join_Numeric1, aes(x=Score, y = Happy_Score, color = Regime_type)) +
+  geom_point(method = "loess", formula = y ~ x, size = 1) +
+  facet_grid("Continent") +
+  labs(x="Overall Functioning Of Gouverment Score", title = "Happiness Compared to Functioning of Gouverment by Regime Type and Continent")
+suppressWarnings(print(Graph))
+#### Look at frequency of regime types
+histo <- ggplot(For_Stats_Graph_Join_Numeric1, aes(fct_infreq(Regime_type),fill=Continent)) +
+  geom_bar() +
+  labs(x="Regime Type", title="Frequency of Regime Type by Continent")
+suppressWarnings(print(histo))
+```
+## Run First Model of the Data
+Since it began to appear as though the overall democracy index and happiness scores are highly related to the regime type, so to check this theory, I put the variables from this dataset into a regression to estimate the effect regime type had on happiness score. To do this, 0-1 variables were created for each regime type to be put into a regression alongside other democracy index variables.
+```{r}
+### Create 0-1 Variables for each of the regime types in the dataset
+For_Stats_Graph_Join_Numeric3 <- For_Stats_Graph_Join_Numeric1 %>%
+  mutate(Is_Full_Democracy = ifelse(Regime_type == "Full democracy", 1, 0 )) %>%
+  mutate(Is_Flawed_Democracy = ifelse(Regime_type == "Flawed democracy",1,0)) %>%
+  mutate(Is_Hybrid_Regime = ifelse(Regime_type == "Hybrid regime",1,0)) %>%
+  mutate(Is_Authoritarian = ifelse(Regime_type == "Authoritarian",1,0)) %>%
+  mutate(Is_Missing = ifelse(Regime_type == "NA",1,0))
+
+### Run regression with categorical variables to be interperted as relative to is Hybrid Regime
+Updated_Regression <- lm(data=For_Stats_Graph_Join_Numeric3, Happy_Score ~ Electoral_Process.and.Pluralism + Functioning_of_Gouv + Political_Participation + Political_Cultyre + Civil_Liberties + Is_Full_Democracy + Is_Flawed_Democracy + Is_Authoritarian)
+summary(Updated_Regression)
+```
+### Plot the relationship
+It appears as though regime type is not as important as I may have expected outside of full democracies. Using the regression, it appears that the actual functioning of  Government rating is generally more critical than regime type. Full democracy had a statistically significant increase in happiness rating independent of other democracy index indicators. Breaking this down with the ridge plot, the functioning of government rating is highly related to the type of government and appears to be more important at driving happiness scores up or down. While not what was originally expected, this could make sense because many of the countries at the bottom of the functioning of government ratings are in shambles. Think about war-torn countries like Syria and Afganistan, for example. Their government's ability to function properly prevents them from providing basic needs to citizens, and those basic needs likely matters more than political ideals to people more worried about where their next meal will come from than democratic freedom. As for full democracies, most if not all of the most affluent, safe, and happy places on earth are full democracies like Canada, which likely explains why that had a significant co-efficient.
+```{r echo=FALSE, out.width = "280px"}
+#### It appears regime type is not as meaninful as I may have thought, why?
+no_na <- For_Stats_Graph_Join_Numeric1 %>%
+  filter(Regime_type != "NA")
+### Set Regime Type as Factor to set levels in order
+for_graph <- no_na %>%
+  transform(Regime_Type_Factor = as.factor(Regime_type))
+
+levels(for_graph$Regime_Type_Factor)
+
+for_graph$Regime_Type_Factor <- factor(for_graph$Regime_Type_Factor, 
+                levels = c("Full democracy", "Flawed democracy", "Hybrid regime", "Authoritarian"))
+
+### Show distribution of gouverment functioning by regime type, they are highly related
+Data_100_Ridge_Plot <- ggplot(for_graph, aes(x=Functioning_of_Gouv, y = Regime_Type_Factor, fill = Regime_Type_Factor)) +
+  geom_density_ridges(alpha=0.3)  +
+  stat_density_ridges(quantile_lines = TRUE, alpha = .3) +
+  labs(x="Functioning Of Government Rating", y ="Government Type", title = "Government Functioning Across Different Types")
+
+Data_100_Ridge_Plot
+```
+## Begin Adding Other datasets To Examine Demographic information
+Now time to add some additional data sets to look at demographic information. The first data set loaded in was called "GINI" which contains information on various country's Gini Coefficient. This can range from 0-100, where 0 is perfect wealth equality, or each person in a country having the same level of aggregate wealth. On the contrary, 100 would be perfect wealth inequality, where the wealthiest person owned all of the wealth. Next was the public debt dataset, which contains information on public debt as a percentage of GDP by country. Then there are the GDP Composition dataset breaks down what sectors the country's GDP comes from as a % of total GDP. The sectors showed are industry, the agricultural sector, and the service industry. Next, I added GDP per capita, which breaks down the GDP divided by the population for a variety of countries. Then education expenditure as a percentage of GDP was added. Finally, After education expenditure, both youth and overall unemployment percentage. Some code was also added to make the variable names easier to understand.  
+```{r, echo=FALSE,include=FALSE}
+### First load in the Gini Co-efficient Dataset
+GINI <- read_tsv("GINI.csv")
+Next_Master <- left_join(For_Stats_Graph_Join_Numeric3, GINI, by="Country")
+#### Add public debt as % of GDP 
+public_debt <- read_tsv("PUBLICDEBT.csv")
+Next_Master2 <- left_join(Next_Master,public_debt, by="Country")
+#### Add GDP composition charecteristics
+GDP_Comp <- read_tsv("GDPCOMPOSITION.csv")
+Next_Master3 <- left_join(Next_Master2, GDP_Comp, by = "Country")
+#### Add GDP Per Capita, clean it since the GDP Per capita figure comes as a charecter containing a $ and ,
+GDP_Per_Cap <- read_tsv("GDPPP.csv")
+Next_Master4 <- left_join(Next_Master3, GDP_Per_Cap, by = "Country")
+colnames(Next_Master4)[colnames(Next_Master4) == "GDP - PER CAPITA (PPP)"] <- "GDP_Per_Cap"
+Next_Master4_STR_Rf_numeric <- Next_Master4 %>%
+  mutate(GDP_Per_Cap = str_replace_all(GDP_Per_Cap, ",", "")) %>%
+  mutate(GDP_Per_Cap = str_replace_all(GDP_Per_Cap, "[`$`]", "")) %>%
+  transform(GDP_Per_Cap = as.numeric(GDP_Per_Cap))
+  
+#### Education expenditure as % of GDP
+EDU <- read_tsv("EDUEXP.csv") 
+Master_6 <- left_join(Next_Master4_STR_Rf_numeric,EDU, by="Country")
+
+colnames(Master_6)[colnames(Master_6) == "X...of.GDP."] <- "Debt_As_%_GDP"
+colnames(Master_6)[colnames(Master_6) == "Distribution.of.family.income...Gini.index"] <- "Gini_Index"
+colnames(Master_6)[colnames(Master_6) == "(% OF GDP)"] <- "Education_Expenditure_As_Perc_GDP"
+#### Youth Unemployment % 
+Youth_Unemployment <- read_tsv("UNEMPYOUTH.csv")
+Master_7 <- left_join(Master_6, Youth_Unemployment, by="Country")
+
+colnames(Master_7)[colnames(Master_7) == "(%)"] <- "Youth_Unemployment_Perc"
+#### Overall Unemployment %
+Unemployment <- read_tsv("UNEMP.csv")
+Master_8 <- left_join(Master_7,Unemployment,by="Country")
+
+colnames(Master_8)[colnames(Master_8) == "(%)"] <- "Unemployment_Perc"
+#### Edit the Percentages out of the GDP composition dataframe
+Master_9 <- Master_8 %>%
+  mutate(algriculture_percentage = str_replace_all(algriculture, "%","")) %>%
+  transform(algriculture_percentage = as.numeric(algriculture_percentage)) %>%
+  mutate(industry_percentage = str_replace_all(industry, "%","")) %>%
+  transform(industry_percentage = as.numeric(industry_percentage)) %>%
+  mutate(sercive_percentage = str_replace_all(services, "%","")) %>%
+  transform(sercive_percentage = as.numeric(sercive_percentage))
+
+glimpse(Master_9)
+```
+
+## Begin Exploring all the Demographic Data
+The first variable I chose to look at was the Gini co-efficient data set. Intuitively it is easy to imagine how a relatively low Gini coefficient leads to a high overall happiness score because more people get a piece of the countries economic pie. At first glance, the Gini Co-efficient's in full democracies were lower on average, suggesting they had more wealth equality.  
+```{r}
+### Set Regime Type as a factor, then change the levels
+for_graph_new <- Next_Master %>%
+  transform(Regime_Type_Factor = as.factor(Regime_type))
+
+for_graph_new$Regime_Type_Factor <- factor(for_graph_new$Regime_Type_Factor, 
+                                       levels = c("Full democracy", "Flawed democracy", "Hybrid regime", "Authoritarian"))
+```
+
+```{r, echo=FALSE, out.width = "280px"}
+GINI_Happy <- ggplot(for_graph_new, aes(x=`Distribution.of.family.income...Gini.index`, y=Happy_Score,color=Score)) +
+  geom_point() +
+  geom_smooth(method = "loess", formula = y ~ x, size = 1) +
+  labs(title = "Gini Index Vs. Happiness Score, by Regime Type") +
+  facet_wrap(~Regime_Type_Factor)
+
+suppressWarnings(print(GINI_Happy))
+```
+### Isolate Gini Index 
+```{r}
+Updated_Regression2 <- lm(data=Master_9, Happy_Score ~ Electoral_Process.and.Pluralism + Functioning_of_Gouv + Political_Participation + Political_Cultyre + Civil_Liberties + Is_Full_Democracy + Is_Flawed_Democracy + Is_Authoritarian + Gini_Index)
+summary(Updated_Regression2)
+```
+Using a multiple linear regression to account for the Gini Co-efficient's correlation with regime type, it began to look like wealth equality, is an important factor in the happiness equation where an increasing Gini Co-efficient decreased overall happiness, on average.
+## Additional Insights
+
+To go along with the Gini Co-efficient data, the variables chosen to be analyzed were Youth Unemployment Percentage and agriculture industry percentage (as % of GDP) because they were the variables with the most robust relationship with happiness score holding the other variables constant.
+
+Note industry percentage was discluded to avoid co-linearity. The 3 percentages usually added up to 100%, so one of the variables had to be discluded to avoid multicollinearity, much like the dummy variable. To decide which one got removed, scatterplots were used to estimate which 2 composition percentages should be used. 
+```{r, echo=FALSE, out.width = "280px"}
+### Run Regression on all notable varaibles to slim down focus
+agriculutre <- ggplot(Master_9, aes(x=algriculture_percentage, y =Happy_Score)) +
+  geom_point() +
+  geom_smooth(method = "loess", formula = y ~ x, size = 1)
+suppressWarnings(print(agriculutre))
+service <- ggplot(Master_9, aes(x=sercive_percentage, y = Happy_Score)) +
+  geom_point() +
+  geom_smooth(method = "loess", formula = y ~ x, size = 1)
+suppressWarnings(print(service))
+industry <- ggplot(Master_9, aes(x=industry_percentage, y = Happy_Score)) +
+  geom_point() +
+  geom_smooth(method = "loess", formula = y ~ x, size = 1)
+suppressWarnings(print(industry))
+```
+The relationship between the agricultural sector is non-linear, so a square term was added to account for the quadratic relationship.
+
+###
+```{r, echo=FALSE}
+#### Add square term to account for non-linear effects relationship between agriculutre and Happiness.
+master_10 <- Master_9 %>%
+  mutate(agriculutre_square = algriculture_percentage^2)
+### Final regression, some irrelavant variables removed
+one_more_non_gdp_regression <- lm(data = master_10, Happy_Score ~ Functioning_of_Gouv + Political_Participation + Political_Cultyre + Civil_Liberties + Is_Full_Democracy + Is_Authoritarian + Is_Hybrid_Regime + Gini_Index + Youth_Unemployment_Perc + Unemployment_Perc + algriculture_percentage + sercive_percentage + agriculutre_square)
+
+summary(one_more_non_gdp_regression)
+```
+Note the co-efficient on Gini coefficient has inched closer to 0, making it less impactful of a variable than in previous models. The estimate on the Gini Index is increasing towards 0 means it was likely the relationship between Gini Index and other indicators like Youth Unemployment rate that drove down the Gini Index estimate.  
+
+### Examine Agricultural Relationship
+As economies have developed worldwide, they generally have moved from the agricultural sector towards the service industry. As a result, the percentage of GDP from the agricultural sector might be a useful proxy for how developed the economy is. Using GDP as a proxy for development, this relationship holds.
+```{r, echo=FALSE, out.width = "280px"}
+agriculutre_to_GDP <- ggplot(master_10, aes(x=algriculture_percentage, y =GDP_Per_Cap)) +
+  geom_point() +
+  geom_smooth(method = "loess", formula = y ~ x, size = 1) +
+  labs(x="Percentage of GDP from the Agricultural Sector")
+suppressWarnings(print(agriculutre_to_GDP))
+```
+The relationship between the percentage of GDP from the agricultural sector closely mirrors our proxy for development. As the portion of a Nation's GDP coming from the agricultural sector decreases, the overall wealth of that country tends to be high. The relationship suggests demographic information such as which sectors a countries GDP is made up of is essential because they can give a good proxy on how developed the countries economy is.
+
+Overall the demographic and political information included can explain around 70% of the variance in happiness by countries. The most important factors are if the country is a full democracy. If so, we can expect almost a full point increase in happiness relative to a flawed democracy. Then there is the functioning of the government rating. As the functioning of the government increases by 1 point on the democracy index's scale, happiness increases by about 0.1, on average. From the demographic information, youth unemployment percentage is an important variable, where the lower youth unemployment percentage, the better, even independent of its relationship with overall unemployment percentage. Finally, there is which sector the countries GDP comes from. There is a quadratic relationship between the % of a countries GDP coming from the agricultural industry and happiness because as Nations develop, they tend to move away from the agricultural sector. 
+
+
+## Technology 
+
+The focus on the technology analysis is to determine the impact of technology on perceived happiness. To begin, we will look at the democracy index dataset. This table is only being used for its Country and Continent categorical variables. As this will be joined to another dataset in the future.
+
+
+```{r,include = FALSE}
+knitr::opts_chunk$set(fig.width=6, fig.height=3.4) 
+
+democracyindex <- read_tsv("DEMOCRACYINDEX.csv")
+
+# selecting Country and Continent
+democracyindex2 <- democracyindex %>%
+  select(Country,Continent)
+```
+
+
+```{r, echo = FALSE}
+democracyindex2 %>% 
+  head(5)
+```
+Next, we will import the happiness score dataset from the World Happiness Report 2018. It has two variables Country (categorical variable) and Happiness score (continuous variable) rated from 1 to 10. A few basic statistics of this dataset include a minimum value of 2.905, a maximum value of 7.632, and a mean of 5.376. Based on the 25th and 75th percentiles it appears most coutries have a happiness score inbetween 4.454 and 6.168.
+
+```{r, include = FALSE}
+happ <- read_tsv("WorldHappinessReport2018-Score.csv")
+```
+
+```{r,echo=FALSE}
+summary(happ)
+```
+
+
+Before we join the datasets together, the possible NA values will want to be noted. I can see a few of the country names have a few subtle differences. I accommodated for this using the stringr library, for example changing “Trinidad & Tobago”  to “Trinidad and Tobago”. We will now join the datasets together; this will allow countries to have an additional Continent variable.  
+
+
+```{r , include= FALSE}
+missing_d <- anti_join(democracyindex2,happ)
+missing_h <- anti_join(happ,democracyindex2)
+missing_d
+missing_h
+```
+
+```{r, echo = FALSE}
+happ2 <- happ %>%
+  mutate('Country' = str_replace_all(Country,'&','and'),
+         'Country' = str_replace(Country,"Hong Kong SAR, China", "Hong Kong"),
+         'Country' = str_replace(Country,'Taiwan Province of China','Taiwan'),
+         'Country' = str_replace(Country,'Macedonia', 'North Macedonia'))
+
+happ3 <- right_join(happ2,democracyindex2,by='Country') %>%
+  rename(
+    'Happiness_score' = `Happiness score`
+  )
+happ3 %>%
+  head(5)
+```
+
+
+With several NA values for the happiness score column,for the purposes of this study they are replaced with the mean of the happiness score column, to include as many countries as possible. This will allow for statistics from more countries will be included in the analysis.
+
+```{r, include = FALSE}
+happ3 %>%
+  filter(is.na(Happiness_score))
+```
+
+
+```{r,echo= FALSE}
+happ3$Happiness_score[is.na(happ3$Happiness_score)]<- mean(happ3$Happiness_score,na.rm=TRUE)
+
+happ4 <- happ3 %>%
+  filter(!is.na(Continent))
+
+happ4 %>%
+  head(5)
+```
+
+After noticing several continents with low numbers of countries included in them, I decided to refactor the continents into four groups. Africa, Asia, Europe, and the Americas, this keeps the count for each continent closer to each other for easier comparison. 
+
+```{r,echo= FALSE}
+count(happ4, Continent)
+
+happ4$Continent <- factor(happ4$Continent)
+
+final_happy <- happ4 %>%
+  mutate('Continent' = fct_collapse(Continent,
+                                    'Americas' = c("North America","South America"),
+                                    'Asia' = c("Asia","Oceania")))%>%
+  arrange(Country,Continent,Happiness_score)
+
+count(final_happy,Continent) 
+```
+
+A plot of the happiness scores by continent shows most countries in Europe have the highest happiness scores on their 50th-75th percentile, as North America has a higher happiness score on their 25th-50th percentile.
+
+```{r, echo=FALSE}
+
+ggplot(final_happy, aes(x = Continent,y= Happiness_score)) +
+  geom_boxplot() +
+  geom_point()+
+  coord_flip()  +
+  labs(title = 'Happiness Score by Continent')
+```
+
+The next 3 data sets being used are internet users, phone subscribers, and country population. All the data sets have a qualitative categorical variable in Country. Internet users dataset includes the total amount of internet users in the Country as a quanitative continuous variable. Phone subscribers has the total amount of phone subscriptions in each respective Country. Finally, the population data set has the sum population of each Country. The goal of this data is to examine if phone and internet subscribers lead to a higher happiness rating. Summary statistics show a large maximum and minimum value, with about a 3,000,000 minimum and a 7,800,000,000,000 total subscriptions. This is an extremely large range for cell phone users.
+
+```{r, include = FALSE}
+internetuser <- read_tsv("INTERNET.csv")
+population <- read_tsv("POPULATION.csv")
+
+# import and notice problems with importing as double
+cellsubscriber <- read_tsv("CELLPHONE.csv",col_types = cols(`total subscriptions` = col_double()))
+
+problems(cellsubscriber)
+
+# reimport the data so problemed columns aren't turned into NAs
+
+cellsubscriber1 <- cellsubscriber <- read_tsv("CELLPHONE.csv")
+
+# replace string million with nothing so it is a number
+
+cellsubscriber2 <- cellsubscriber1 %>%
+  mutate(`total subscriptions` = str_replace_all(`total subscriptions`,' million','')) %>%
+  rename('Total_subscriptions' = `total subscriptions`)
+
+# then transform the variable to a double data type
+
+cellsubscriber3 <- cellsubscriber2 %>%
+  transform(Total_subscriptions = as.double(Total_subscriptions)) %>%
+  as_tibble() %>%
+  select(-c(year, subscriptions.per.100.inhabitants,notes))
+
+# find where the data needs to multipled by 1 million, no country has total internet users lower then 1000
+
+cellsubscriber3 %>%
+  filter(Total_subscriptions < 1000)
+
+```
+
+
+```{r, echo= FALSE}
+
+# use a ifelse to replace all values lower then 1000 to their value * 1000000 (eg '1.49 million' is now 1,490,000)
+cellsubscriber3$Total_subscriptions <- ifelse(cellsubscriber3$Total_subscriptions < 1000,               cellsubscriber3$Total_subscriptions *1000000,             cellsubscriber3$Total_subscriptions)
+
+summary(cellsubscriber3)
+```
+
+All 3 of the data sets are joined together, and new features are added, including the percentage of internet and phone usages based on population. This is to mitigate the extremely large range between countries with low population and countries with high population. At first glance, some Countries have phone users above 100%. This could be due to all businesses having several new phones, landline phones at residential homes, and countless people who have multiple phones for personal/business use. Furthermore, this results in more phone subscriptions than the total population. The summary statistics show a about 49% of the population have internet use.
+
+```{r, include = FALSE}
+int <- left_join(cellsubscriber3,internetuser, by= 'Country')
+
+population <- read_tsv("POPULATION.csv")
+
+tech <- left_join(int,population,by='Country')
+
+```
+
+
+```{r, echo=FALSE}
+
+tech2 <- tech %>%
+  filter(!is.na(`Internet users`))%>%
+  select(-c(Rank.x,Rank.y,`Date of Information`)) %>%
+  rename('Internet_users' = `Internet users`) %>%
+  mutate('percent_internet' = Internet_users / Population * 100,
+         'percent_phone' = Total_subscriptions / Population * 100) %>%
+  filter(Internet_users > 100)
+
+
+tech3 <- left_join(tech2,final_happy,by='Country') %>%
+  filter(!is.na(Continent))
+
+tech3 %>%
+  head(5)
+
+techcheck <- tech3 %>%
+  select(percent_internet,percent_phone,Internet_users)
+
+summary(techcheck)
+```
+
+
+Analyzing internet usage shows that as the internet usage percentage increases, so does happiness score. For example, Europe has the highest average happiness score at 6.06/10 and also the highest population percentage who use the internet at 76.9%. Although the happiness score index is based on several factors, internet usage relates to general quality of life conditions. This includes internet users typically having food, shelter, and a degree of wealth good enough to pay for internet each month. Furthermore, this isn’t, including the benefit of access to knowledge and entertainment that comes along with an internet subscription.
+
+```{r, echo=FALSE}
+# Basics stats for hapiness score and internet usage
+tech3 %>%
+  group_by(Continent) %>%
+  summarise(average_score = mean(Happiness_score),
+            percent_internet = mean(percent_internet))
+
+# plotting happiness vs internet
+tech3 %>%
+  ggplot(aes(x = Happiness_score,y=percent_internet)) +
+  geom_point(aes(color=Continent))+
+  geom_smooth(se=F)+
+  labs(title = 'Happiness Score vs Internet Usage')
+         
+```
+
+This is further reinforced with a Pearson Correlation value of about 0.75. The correlation shows the strong connection between happiness score and interest access. The ridge plot of the data shows Asia seems to have an extremely large variance in terms of internet access. This can be displayed with the highest standard deviation of all of the continents at 26.6. Outlining some countries in Asia have low access to the internet and others extremely high access.
+
+```{r, echo=FALSE}
+
+# Correlation
+cor(tech3$Happiness_score,tech3$percent_internet)
+
+# Box plot and standard deviation of data
+
+ggplot(tech3,aes(x = percent_internet,y= Continent,fill = Continent)) +
+  geom_density_ridges(alpha = 0.5)+
+  stat_density_ridges(quantile_lines = TRUE,alpha = 0.3)+
+  labs(title = 'Percentage of Internet by Continent')
+
+tech3 %>%
+  group_by(Continent) %>%
+  summarise(percent_internet_sd = sd(percent_internet))
+```
+
+## Education
+
+Importing the schooling Expectancy data will provide insight into the average age students end their education in each respective Country. The Country is a categorical variable, with total, male and female representing the age of students when their schooling as a continuous variable. Summary statistics show a mean age of about 13.51 years old when students finish their education, which is surprisingly low. I will use this data set combined with the life expectancy data to attempt pattern discovery within life expectancy, education, and, subsequently, happiness score.
+
+Looking at the histogram for the schooling data, with the mean lower than the median, there appears to be a negative skew in the data. Furthermore, a multimodal distribution is present with 3 distinct modes. Zooming in on the outlier on the right side of the data shows Australia with an age of 23 when their education ends, this seems extremely high.
+
+```{r, include = FALSE}
+schooling <- read_tsv("SCHOOLINGEXPECTANCY.csv")
+```
+
+```{r,echo=FALSE}
+
+schooling2 <- schooling %>%
+  select(-c(year,notes))
+
+#basic stats and histogram for education expectancy 
+
+ggplot(data=schooling2,mapping = aes(x=total)) +
+  geom_histogram(bins=10,binwidth = 1)+
+  labs(title = 'Age When Education Concluded')
+
+
+schooling2 %>%
+  select(-c(Country)) %>%
+  summary(schooling2)
+
+# Australia has mostly free university education 
+schooling2 %>%
+  filter(total > 20)
+
+```
+
+
+Analyzing life expectancy Country is a qualitative categorical variable, as life expectancy is a quantitative continuous variable representing life expectancy for each country. It appears that the longer the life expectancy increases the education age expectancy also increases. 
+
+
+```{r, include = FALSE}
+# importing and adding the life expectancy data
+
+lifeexpect <- read_tsv("LIFEEXPECTANCYATBIRTH.csv")
+
+lifeexpect2 <- lifeexpect %>%
+  rename('life_expect' = `total population`) %>%
+  select(-c(year,male,female))
+
+school_life <- left_join(lifeexpect2,schooling2,c='Country')
+```
+
+
+```{r, echo=FALSE}
+# Average age to begin school is around 5 years old
+
+school_life2<-school_life %>%
+  filter(!is.na(total)) %>%
+  select(-c(male,female)) %>%
+  mutate(life_inschool = ((total - 5 ) / life_expect) * 100)
+
+
+# life expectany vs schooling
+ 
+ggplot(school_life2,aes(x=total,y=life_expect))+
+  geom_point()+
+  geom_smooth(se=FALSE)+
+  labs(title = 'Relationship Between Life Expectancy and Education Age')
+```
+This makes sense, as the ratio between life and education changes, for example, pursuing education until the age of 20 with a life expectancy of 80 is much different than the same situation but with a life expectancy of 45. With a lower life expectancy, potential students might be forced to join the workforce if the head of the house dies at a younger age. This also correlates to happiness scores significantly, as the higher percentage of life spent in school seems to equal higher happiness generally. 
+
+```{r,echo=FALSE}
+
+# adding happiness score
+
+all = left_join(school_life2,final_happy,by='Country')
+
+all2 <- all %>%
+  filter(!is.na(Happiness_score))
+
+all2 %>%
+  ggplot(aes(x=life_inschool,y=Happiness_score))+
+  geom_boxplot(aes(group = cut_interval(life_inschool,8)))+
+  labs(title = 'Happiness Score and Life Spent in School')
+
+```
+
+Relating back to happiness score shows a higher level of education also correlates to a higher happiness score. A good edcuation typically means a good paying job, allowing for the purchase of needs as well as wants, thus increasing happiness.
+
+```{r,echo=FALSE}
+ggplot(all2,aes(x=total,y=Happiness_score))+
+  geom_point(aes(color=Continent))+
+  geom_smooth(se=F)+
+  labs(title = 'Happiness Score and Education')
+```
+
+## Education and Technology Linear Regression
+
+The linear regression from the education and technology variables greatly reinforces the observations recorded for these sectors. Variables including the percentage of internet users, life expectancy, and ending age of education all are positive influencers on happiness scores. Life expectancy seems to be the positive driving influencer to Happiness score. With each year of life, expectancy comes a 0.052 increase in happiness score. Therefore 10 years of life expectancy increases happiness score by 0.52 which is massive with the main range of 4 to 7 on the happiness score data
+
+```{r, include = FALSE}
+
+model <- left_join(tech2,schooling2)
+
+model <- left_join(model,lifeexpect2)
+
+model <- left_join(model,final_happy)
+
+```
+
+
+```{r, echo=FALSE}
+regression <- lm(data=model, Happiness_score ~ percent_internet + life_expect + total)
+
+summary(regression)
+```
+
+These variables also hold a connection to each other, as each variable is dropped from the regression, the variables remaining further increase the happiness score variable. For example, percent internet usage increase from 0.01 per percent to 0.029. A 10% increase in a countries internet usage leads to a 0.29 point increase in happiness score.
+
+```{r, echo=FALSE}
+
+regression <- lm(data=model, Happiness_score ~ percent_internet)
+
+summary(regression)
+
+```
+In conclusion, technology and education play a large role in a countries happiness score. It seems having quality education and access to technology equates to shelter, food, water and entertainment.
+
+
+## Heath 
+
+The Health Expenditure data set shows the percentage of GDP that each country spends on health care. It contains the qualitative continuous variable as CHE, representing the percentage that each country spends on healthcare.
+
+```{r, include = FALSE}
+
+healthexp <- read_tsv("HEALTHEXP.csv")
+
+healthexp
+
+```
+
+
+```{r, echo=FALSE}
+
+
+healthexp2 <- healthexp %>%
+  mutate('CHE' = str_replace_all(healthexp$`Current Health Expenditure`,'%',''))%>%
+  select(Country,CHE) %>%
+  mutate('CHE' = as.double(CHE))
+
+healthexp3 <- healthexp2 %>%
+  filter(CHE < 100) 
+
+
+ggplot(healthexp3,aes(x=CHE))+
+  geom_histogram(bins = 20)
+
+summary(healthexp3)
+
+```
+The histogram displayed above shows each countries annual health expenditure (CHE) in relation to their individual GDP totals. On average, countries are spending 6.3% of their GDP on healthcare. The graph was adjusted to filter out an outlier that was recorded as spending over 400% of their GDP on healthcare. It appears most countries spebd 4-8% of their weath on healthcare.
+
+The happiness score data set will be joined to the health expenditure data set to see the relationship between expenditure and Continent.
+
+
+```{r, echo= FALSE}
+
+health <- left_join(final_happy,healthexp2,by = 'Country') %>%
+  filter(!is.na(CHE))
+
+ggplot(health,aes(x=CHE,y=Happiness_score,color=Continent))+
+  geom_boxplot()+ 
+  coord_flip()+
+  labs(title = 'Happiness Score vs Healthcare Expenditure by Continent')
+```
+
+The graph shows a connection between countries happiness scores and their health care expenditure (CHE). In order to group the rather large set of data better, the graph has been adjusted to show continents instead of individual countries. The common return of the graph as seen with Asia, Europe, and the Americas is that the more money being spent on health care, the higher the happiness score. It is clear that Africa spends a higher percent of their GDP on health care, yet their considerably lower on average in the happiness score category. This may be a result of Africa having a lower annual GDP, as even though their CHE percentage may be higher than the others, they’re still spending less money and therefore have a low happiness score.
+
+
+```{r, echo=FALSE}
+ggplot(health,aes(x = CHE,y=Happiness_score)) +
+  geom_point()+
+  geom_smooth()+
+  labs(title = 'Happiness Score vs Healthcare Expenditure')
+
+```
+
+The graph displays the data from each country, as the CHE percentage per country increases, so does their happiness score. There are obvious outliers as there is a decline near the higher end of the CHE scores, this can be a similar case as previously stated with Africa’s CHE in relation to their comparably lower GDP. When certain countries are not bringing in a lot of money, the little amounts they may spend on health care contribute to a higher portion of their GDP compared to the countries who have a much larger GDP total.
+
+
+```{r,echo=FALSE}
+
+lifeexpect %>%
+  filter(!is.na(`total population`)) %>%
+  ggplot(aes(x = `total population`))+
+  geom_histogram(bins = 20)
+
+summary(lifeexpect$`total population`)
+
+```
+
+The histogram shows the life expectancy of males and females across each country. This data can be used to determine which sex tends to live longer on average, using the ‘summary’ application its clear that females tend to live longer. 
+
+
+```{r,include=FALSE}
+
+birthrate <- read_tsv("BIRTHRATE.csv")
+
+deathrate <- read_tsv("DEATHRATE.csv")
+
+birthrate 
+deathrate
+
+birth_death = left_join(birthrate,deathrate,by='Country') %>%
+  select(-c(Rank.x,Rank.y,`Date of Information.x`,`Date of Information.y`))
+
+birth_death
+
+```
+
+```{r, echo=FALSE}
+
+ggplot(birth_death, aes(x = `(births/1,000 population)`,y=`(deaths/1,000 population)`))+
+  geom_point()+
+  geom_smooth()+
+  labs(title = 'Birth Rate vs Death Rate')
+
+```
+
+The graph displays the mid-point along the death rate and birth rate datasets. Each set is adjusted to calculate per every 1000 people in order to display a more visible result. The graph shows that even as the birth rates climb from 10 – 40, the death rate remains constant at 10 per every 1000. 
+
+```{r,include = FALSE}
+
+comp <- left_join(final_happy,birth_death,by='Country')
+
+comp
+```
+
+
+
+```{r, echo=FALSE}
+
+ggplot(comp, aes(x = `(births/1,000 population)`,y=Happiness_score))+
+  geom_point()+
+  geom_smooth()+
+  labs(title = 'Happiness Score vs Birth Rate')
+
+```
+
+The graph displays the connection between the birth rates and happiness score within countries. The data shows that as the birth rates increase, the happiness score decreases. Such results can be attributed to many factors including; the more people within a population requires the healthcare to be spread out more, thus decreasing the potential quality per person. Also, the same concept can be applied to the amount of money that will be required to support larger families as the birthrates increase. If a family has more kids, they are then spreading their resources thin in an attempt to provide for all members. 
+
+
+
