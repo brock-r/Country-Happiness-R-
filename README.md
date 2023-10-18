@@ -4,6 +4,8 @@
 
 The goal of this project is to discover the “Happiness” level of each country and what factors impact this idea of happiness or better known as the quality of life within each country. The conclusions drawn from the results could help global leaders identify the key focus points in keeping the citizens of their country well taken care of.
 
+Final PDF Here: https://github.com/brock-r/Country-Happiness-R-/blob/main/HappinessCode/Final-Report.pdf
+
 ## Measurement
 
 [The happiness score](https://github.com/brock-r/Country-Happiness-R-/blob/main/HappinessCode/CSVFILES/WorldHappinessReport2018-Score.csv) is based on the findings of The World Happiness
